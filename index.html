@@ -1,0 +1,493 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Phone Finance Tracker v3</title>
+<meta name="theme-color" content="#0f172a">
+<style>
+:root{--bg:#0b1220;--card:#111827;--card2:#0f172a;--text:#f8fafc;--muted:#94a3b8;--border:#1f2937;--green:#22c55e;--red:#ef4444}
+*{box-sizing:border-box} html,body{margin:0;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+body{padding-bottom:84px}.wrap{max-width:760px;margin:0 auto;padding:16px}
+h1,h2,h3,p{margin:0}.top{display:flex;justify-content:space-between;gap:12px;align-items:flex-start;margin-bottom:14px}
+.muted{color:var(--muted)}.small{font-size:13px}.grid{display:grid;gap:12px}.cards{grid-template-columns:repeat(2,minmax(0,1fr))}
+.card{background:var(--card);border:1px solid var(--border);border-radius:18px;padding:14px}.num{font-weight:800;font-size:28px;line-height:1.05;margin-top:6px}
+.green{color:var(--green)}.red{color:#f87171}.section{display:none}.section.active{display:block}.row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+label{display:block;font-size:12px;color:var(--muted);margin-bottom:6px} input,select,textarea,button{font:inherit}
+input,select,textarea{width:100%;padding:12px;border-radius:12px;border:1px solid var(--border);background:var(--card2);color:var(--text)}
+textarea{min-height:88px;resize:vertical}
+button{border:1px solid var(--border);background:#1e293b;color:var(--text);padding:12px 14px;border-radius:12px;cursor:pointer}
+button.primary{background:#14532d;border-color:#166534}button.secondary{background:#172554;border-color:#1d4ed8}button.danger{background:#450a0a;border-color:#7f1d1d}
+.btns{display:flex;gap:10px;flex-wrap:wrap}.btns>*{flex:1}.list{display:grid;gap:10px}.tx{display:flex;justify-content:space-between;gap:10px}.tx .left{display:grid;gap:4px}
+.pill{display:inline-block;padding:2px 8px;border-radius:999px;border:1px solid var(--border);font-size:12px;color:var(--muted);background:var(--card2)}
+.tabs{position:fixed;left:0;right:0;bottom:0;display:grid;grid-template-columns:repeat(4,1fr);gap:8px;padding:10px 12px;background:rgba(11,18,32,.96);backdrop-filter:blur(10px);border-top:1px solid var(--border)}
+.tabs button{padding:10px 8px;border-radius:999px;background:#111827}.tabs button.active{background:#1e293b;border-color:#334155}
+.account-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.account{background:var(--card2);border:1px solid var(--border);padding:12px;border-radius:14px}.right{text-align:right}
+.notice{padding:10px 12px;border:1px solid #3f3f46;background:#18181b;border-radius:12px;color:#d4d4d8;font-size:13px}
+.stack{display:grid;gap:8px}.mini{display:grid;grid-template-columns:1fr auto;gap:8px;align-items:center}.chiprow{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+.chip{padding:6px 10px;border:1px solid var(--border);border-radius:999px;background:var(--card2);font-size:12px;color:var(--muted)}
+.collapse-head{display:flex;justify-content:space-between;align-items:center;gap:10px}
+.collapse-toggle{padding:8px 12px;border-radius:999px;background:var(--card2);font-size:12px}
+.collapsible{overflow:hidden;transition:max-height .25s ease,opacity .2s ease,margin-top .2s ease;max-height:1200px;opacity:1}
+.collapsible.collapsed{max-height:0;opacity:0;margin-top:0!important;pointer-events:none}
+
+@media (max-width:520px){.cards,.account-grid,.row{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="top">
+    <div>
+      <h1>Phone Finance Tracker v3</h1>
+      <div class="muted small">Single-file app. Saves on this device.</div>
+    </div>
+    <div id="status" class="small muted">Ready</div>
+  </div>
+
+  <section id="home" class="section active grid">
+    <div class="grid cards">
+      <div class="card"><div class="small muted">Income · last 30 days</div><div id="income30" class="num green">$0.00</div></div>
+      <div class="card"><div class="small muted">Expenses · last 30 days</div><div id="expenses30" class="num red">$0.00</div></div>
+      <div class="card"><div class="small muted">Net · last 30 days</div><div id="net30" class="num">$0.00</div></div>
+      <div class="card"><div class="small muted">Overall cash on hand</div><div id="overallCash" class="num">$0.00</div></div>
+    </div>
+    <div class="card">
+      <div class="collapse-head">
+        <h3>Accounts / method totals</h3>
+        <button id="toggleAccountsBtn" class="collapse-toggle" type="button" aria-expanded="true" aria-controls="accountTotalsWrap">Collapse</button>
+      </div>
+      <div id="accountTotalsWrap" class="collapsible" style="margin-top:10px">
+        <div id="accountTotals" class="account-grid"></div>
+      </div>
+    </div>
+    <div class="card">
+      <h3>Recent activity · 30 days</h3>
+      <div id="recentList" class="list" style="margin-top:10px"></div>
+    </div>
+  </section>
+
+  <section id="add" class="section grid">
+    <div class="card">
+      <h3>Speak or type</h3>
+      <div class="small muted" style="margin-top:6px">Examples: “bought panda express 25 cash” · “Chris paid me 900 in rent cashapp”</div>
+      <textarea id="rawInput" placeholder="Type a transaction..."></textarea>
+      <div class="btns" style="margin-top:10px">
+        <button id="parseBtn" class="primary">Parse</button>
+        <button id="speakBtn" class="secondary">Speak</button>
+      </div>
+      <div class="notice" style="margin-top:10px">Flow stays 1 type, 2 category, 3 subcategory, 4 classification, 5 account/method, 6 amount. But now 1–5 are editable in Settings.</div>
+    </div>
+    <div class="card">
+      <h3>Transaction</h3>
+      <div class="row">
+        <div><label>1 type</label><select id="type"></select></div>
+        <div><label>2 category</label><select id="category"></select></div>
+      </div>
+      <div class="row">
+        <div><label>3 subcategory</label><select id="subcategory"></select></div>
+        <div><label>5 account / method</label><select id="method"></select></div>
+      </div>
+      <div><label>4 classification</label><input id="classification" placeholder="panda express"></div>
+      <div style="margin-top:10px"><label>6 amount</label><input id="amount" type="number" step="0.01" placeholder="25"></div>
+      <div class="btns" style="margin-top:12px">
+        <button id="saveBtn" class="primary">Save</button>
+        <button id="clearBtn">Clear</button>
+      </div>
+    </div>
+  </section>
+
+  <section id="transactions" class="section grid">
+    <div class="card">
+      <h3>Transactions</h3>
+      <div class="row">
+        <div><label>Type</label><select id="filterType"><option value="">All</option></select></div>
+        <div><label>Account / method</label><select id="filterMethod"><option value="">All</option></select></div>
+      </div>
+      <div class="row">
+        <div><label>Category</label><select id="filterCategory"><option value="">All</option></select></div>
+        <div><label>Search</label><input id="filterSearch" placeholder="classification"></div>
+      </div>
+      <div class="btns" style="margin-top:10px">
+        <button id="applyFiltersBtn">Apply</button>
+        <button id="csvBtn">Export CSV</button>
+        <button id="backupBtn">Export Backup</button>
+      </div>
+      <div style="margin-top:10px">
+        <label>Import Backup</label>
+        <input id="importFile" type="file" accept=".json,application/json">
+      </div>
+      <div id="txList" class="list" style="margin-top:12px"></div>
+    </div>
+  </section>
+
+  <section id="settings" class="section grid">
+    <div class="card">
+      <h3>Manage 1–5</h3>
+      <div class="small muted" style="margin-top:6px">Add or remove the values for each level here.</div>
+      <div class="stack" style="margin-top:12px">
+        <div>
+          <label>1 type</label>
+          <div class="mini"><input id="newType" placeholder="add type"><button data-add="types">Add</button></div>
+          <div id="typesEditor" class="stack" style="margin-top:8px"></div>
+        </div>
+        <div>
+          <label>2 category</label>
+          <div class="mini"><input id="newCategory" placeholder="add category"><button data-add="categories">Add</button></div>
+          <div id="categoriesEditor" class="stack" style="margin-top:8px"></div>
+        </div>
+        <div>
+          <label>3 subcategory</label>
+          <div class="mini"><input id="newSubcategory" placeholder="add subcategory"><button data-add="subcategories">Add</button></div>
+          <div id="subcategoriesEditor" class="stack" style="margin-top:8px"></div>
+        </div>
+        <div>
+          <label>5 account / method</label>
+          <div class="mini"><input id="newMethod" placeholder="add account or method"><button data-add="methods">Add</button></div>
+          <div id="methodsEditor" class="stack" style="margin-top:8px"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>Account balances for 5</h3>
+      <div class="small muted" style="margin-top:6px">Enter the current balance for each account or method. This is added to your transactions to compute the running total shown on the dashboard.</div>
+      <div id="balancesList" class="list" style="margin-top:10px"></div>
+      <div class="btns" style="margin-top:12px"><button id="saveBalancesBtn" class="primary">Save balances</button></div>
+    </div>
+
+    <div class="card">
+      <h3>4 classification</h3>
+      <div class="small muted" style="margin-top:6px">This stays open text per transaction.</div>
+      <div id="classificationExamples" class="chiprow"></div>
+    </div>
+  </section>
+</div>
+
+<div class="tabs">
+  <button data-tab="home" class="active">Home</button>
+  <button data-tab="add">Add</button>
+  <button data-tab="transactions">Transactions</button>
+  <button data-tab="settings">Settings</button>
+</div>
+
+<script>
+const DB_NAME='phone_finance_tracker_db', STORE='appdata', KEY='main', LS='phone_finance_tracker_backup_v3';
+const defaults={
+  types:['income','expense'],
+  categories:['rent','mortgage','house','donations','TPUSA','BA work','other','constituting america','food','recreation','car','bill'],
+  subcategories:['electric','water','sewer','garbage','internet','general','recurring','one-time','maintenance','truthandlight','gas','food'],
+  methods:['cash','venmo','cashapp','paypal','check','embassy','amex','credit','debit','truist','other']
+};
+const OPENAI_API_KEY = "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";
+const SHEETS_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzdYRMPMxgnweT2TGoka1NcPwCcgfkYZg5GRQW84ZHqa17lME9Pu-DIHTM1OsK2ZA96/exec";
+const SHEETS_APP_TOKEN = "finance-2026-lock-xyz";
+
+async function parseTextAI(text){
+  try{
+    if(!OPENAI_API_KEY || OPENAI_API_KEY.includes("REPLACE_THIS_WITH_YOUR_KEY")) return null;
+
+    const res = await fetch("https://api.openai.com/v1/chat/completions",{
+      method:"POST",
+      headers:{
+        "Content-Type":"application/json",
+        "Authorization":`Bearer ${OPENAI_API_KEY}`
+      },
+      body:JSON.stringify({
+        model:"gpt-4.1-mini",
+        temperature:0,
+        response_format:{ type:"json_object" },
+        messages:[
+          {
+            role:"system",
+            content:`Parse the user's finance entry into JSON only:
+{"type":"","category":"","subcategory":"","classification":"","method":"","amount":0}
+
+Allowed values:
+- type: income, expense
+- category: rent, mortgage, house, donations, TPUSA, BA work, other, constituting america, food, recreation, car, bill
+- subcategory: electric, water, sewer, garbage, internet, general, recurring, one-time, maintenance, truthandlight, gas, food
+- method: cash, venmo, cashapp, paypal, check, embassy, amex, credit, debit, truist, other
+
+Rules:
+- type must be income or expense
+- category must use an allowed category
+- subcategory must use an allowed subcategory
+- classification must be the exact real-world label from the sentence, such as Chris, panda express, electric bill, hostinger
+- method cannot be blank and must use an allowed method; use other if unknown
+- amount must be numeric only
+- If the sentence says cashapp, method must be cashapp, not cash
+- If the sentence includes a person's name like Chris, that should usually be classification
+- For rent payments use category = rent and subcategory = recurring
+- Return JSON only with no markdown.`
+          },
+          { role:"user", content:text }
+        ]
+      })
+    });
+    const data = await res.json();
+    const content = data?.choices?.[0]?.message?.content;
+    if(!content) return null;
+    return normalizeAIResult(JSON.parse(content), text);
+  }catch(e){
+    console.log("AI parse failed", e);
+    return null;
+  }
+}
+
+function normalizeAIResult(p, rawText){
+  const raw = String(rawText || "");
+  const lower = raw.toLowerCase();
+
+  const allowed = {
+    type: ['income','expense'],
+    category: ['rent','mortgage','house','donations','TPUSA','BA work','other','constituting america','food','recreation','car','bill'],
+    subcategory: ['electric','water','sewer','garbage','internet','general','recurring','one-time','maintenance','truthandlight','gas','food'],
+    method: ['cash','venmo','cashapp','paypal','check','embassy','amex','credit','debit','truist','other']
+  };
+
+  let out = {
+    type: allowed.type.includes(p?.type) ? p.type : 'expense',
+    category: allowed.category.includes(p?.category) ? p.category : 'other',
+    subcategory: allowed.subcategory.includes(p?.subcategory) ? p.subcategory : 'general',
+    classification: String(p?.classification || '').trim(),
+    method: allowed.method.includes(p?.method) ? p.method : 'other',
+    amount: Number(p?.amount || 0)
+  };
+
+  if (lower.includes('cashapp')) out.method = 'cashapp';
+  else if (lower.includes('venmo')) out.method = 'venmo';
+  else if (lower.includes('paypal')) out.method = 'paypal';
+  else if (lower.includes('truist') || lower.includes('bank')) out.method = 'truist';
+  else if (lower.includes('check')) out.method = 'check';
+  else if (lower.includes('amex') || lower.includes('american express')) out.method = 'amex';
+  else if (lower.includes('credit')) out.method = 'credit';
+  else if (lower.includes('debit')) out.method = 'debit';
+  else if (lower.includes('embassy')) out.method = 'embassy';
+  else if (lower.includes('cash')) out.method = 'cash';
+  else if (!out.method) out.method = 'other';
+
+  if (lower.includes('rent')) {
+    out.category = 'rent';
+    out.subcategory = 'recurring';
+    const m = raw.match(/([A-Z][a-z]+)\s+paid\s+me|from\s+([A-Z][a-z]+)/);
+    if (m) out.classification = (m[1] || m[2] || out.classification).trim();
+    out.type = 'income';
+  }
+
+  if (lower.includes('mortgage')) {
+    out.category = 'mortgage';
+    out.subcategory = 'recurring';
+    if (!out.classification) out.classification = 'mortgage';
+    out.type = 'expense';
+  }
+
+  if (lower.includes('electric') && out.category !== 'rent') {
+    out.category = 'bill';
+    out.subcategory = 'electric';
+    if (!out.classification || /rent income/i.test(out.classification)) out.classification = 'electric bill';
+    if (out.type !== 'income') out.type = 'expense';
+  }
+
+  if (lower.includes('water')) {
+    out.category = 'bill';
+    out.subcategory = 'water';
+    if (!out.classification) out.classification = 'water bill';
+    if (out.type !== 'income') out.type = 'expense';
+  }
+
+  if (lower.includes('gas')) {
+    out.category = 'car';
+    out.subcategory = 'gas';
+    if (!out.classification) out.classification = 'gas';
+    if (out.type !== 'income') out.type = 'expense';
+  }
+
+  if (!out.classification) {
+    out.classification = raw.replace(/\$?\s*[0-9]+(?:\.[0-9]{1,2})?/g,'').trim() || 'transaction';
+  }
+
+  return out;
+}
+
+
+async function sendToGoogleSheets(tx){
+  try{
+    if(!SHEETS_WEBHOOK_URL) return false;
+
+    const res = await fetch(SHEETS_WEBHOOK_URL,{
+      method:"POST",
+      headers:{ "Content-Type":"text/plain;charset=utf-8" },
+      body: JSON.stringify({
+        token: SHEETS_APP_TOKEN,
+        date: tx.date || new Date().toISOString(),
+        type: tx.type,
+        category: tx.category,
+        subcategory: tx.subcategory,
+        classification: tx.classification,
+        method: tx.method,
+        amount: Number(tx.amount || 0)
+      })
+    });
+
+    const text = await res.text();
+    console.log("Sheets response:", text);
+    const data = JSON.parse(text);
+    return !!data.ok;
+
+  }catch(e){
+    console.log("Sheets sync failed", e);
+    return false;
+  }
+}
+const $=id=>document.getElementById(id), fmt=n=>`$${Number(n||0).toFixed(2)}`;
+let state={transactions:[],balances:{},options:structuredClone(defaults),ui:{accountsCollapsed:false}};
+
+function setStatus(s){$('status').textContent=s}
+function safeClone(v){return JSON.parse(JSON.stringify(v))}
+function uniqueClean(arr){return [...new Set((arr||[]).map(v=>String(v||'').trim()).filter(Boolean))]}
+function ensureOptions(){
+  if(!state.ui||typeof state.ui!=='object')state.ui={accountsCollapsed:false};
+  const oldOptions=state.options||{};
+  state.options={
+    types:uniqueClean(oldOptions.types?.length?oldOptions.types:defaults.types),
+    categories:uniqueClean(oldOptions.categories?.length?oldOptions.categories:defaults.categories),
+    subcategories:uniqueClean(oldOptions.subcategories?.length?oldOptions.subcategories:defaults.subcategories),
+    methods:uniqueClean(oldOptions.methods?.length?oldOptions.methods:defaults.methods)
+  };
+  if(!state.options.types.length)state.options.types=['expense'];
+  if(!state.options.categories.length)state.options.categories=['other'];
+  if(!state.options.subcategories.length)state.options.subcategories=['general'];
+  if(!state.options.methods.length)state.options.methods=['other'];
+  const keep={};
+  for(const m of state.options.methods)keep[m]=Number(state.balances?.[m]||0);
+  state.balances=keep;
+}
+function fillSelect(id,items,all=false){$(id).innerHTML=(all?['']:[]).concat(items).map(v=>`<option value="${escapeHtml(v)}">${v||'All'}</option>`).join('')}
+function nowIso(){return new Date().toISOString()}
+function openDb(){return new Promise((resolve,reject)=>{const req=indexedDB.open(DB_NAME,1);req.onupgradeneeded=()=>{const db=req.result;if(!db.objectStoreNames.contains(STORE))db.createObjectStore(STORE)};req.onsuccess=()=>resolve(req.result);req.onerror=()=>reject(req.error)})}
+async function saveState(){localStorage.setItem(LS,JSON.stringify(state));try{const db=await openDb();await new Promise((resolve,reject)=>{const tx=db.transaction(STORE,'readwrite');tx.objectStore(STORE).put(state,KEY);tx.oncomplete=()=>resolve();tx.onerror=()=>reject(tx.error)});db.close()}catch(e){}}
+async function loadState(){try{const db=await openDb();const data=await new Promise((resolve,reject)=>{const tx=db.transaction(STORE,'readonly');const req=tx.objectStore(STORE).get(KEY);req.onsuccess=()=>resolve(req.result);req.onerror=()=>reject(req.error)});db.close();if(data){state={transactions:data.transactions||[],balances:data.balances||{},options:data.options||safeClone(defaults),ui:data.ui||{accountsCollapsed:false}};localStorage.setItem(LS,JSON.stringify(state));ensureOptions();return}}catch(e){}
+  try{const b=JSON.parse(localStorage.getItem(LS)||'{}');state={transactions:b.transactions||[],balances:b.balances||{},options:b.options||safeClone(defaults),ui:b.ui||{accountsCollapsed:false}}}catch(e){state={transactions:[],balances:{},options:safeClone(defaults),ui:{accountsCollapsed:false}}}
+  ensureOptions()
+}
+function normalizeMethod(s){s=s.toLowerCase();if(s.includes('cash app'))return'cashapp';if(s.includes('american express'))return'amex';for(const m of state.options.methods){if(s.includes(m.toLowerCase()))return m}if(s.includes('bank'))return state.options.methods.includes('truist')?'truist':state.options.methods[0];return state.options.methods.includes('other')?'other':state.options.methods[0]}
+function parseText(text){const lower=text.toLowerCase().trim();const amount=((lower.match(/\$?\s*([0-9]+(?:\.[0-9]{1,2})?)/)||[])[1]||0)*1;const fallbackType=state.options.types.includes('expense')?'expense':state.options.types[0];const fallbackCategory=state.options.categories.includes('other')?'other':state.options.categories[0];const fallbackSub=state.options.subcategories.includes('general')?'general':state.options.subcategories[0];const fallbackMethod=state.options.methods.includes('other')?'other':state.options.methods[0];
+let type=fallbackType,category=fallbackCategory,subcategory=fallbackSub,classification=text.trim()||'transaction',method=normalizeMethod(lower);
+if(state.options.types.includes('income')&&(['paid me','received','earned','made'].some(w=>lower.includes(w))||lower.includes('rent')&&(lower.includes('from ')||lower.includes('paid me'))))type='income';
+if(state.options.categories.includes('rent')&&lower.includes('rent')){if(state.options.types.includes('income'))type='income';category='rent';subcategory=state.options.subcategories.includes('recurring')?'recurring':fallbackSub;const m=text.match(/from\s+([A-Za-z' ]+)|([A-Z][a-z]+)\s+paid\s+me/);classification=(m&&(m[1]||m[2]))?(m[1]||m[2]).trim():'rent payment'}
+else if(state.options.categories.includes('mortgage')&&lower.includes('mortgage')){category='mortgage';subcategory=state.options.subcategories.includes('recurring')?'recurring':fallbackSub;classification='mortgage'}
+else if(state.options.subcategories.includes('electric')&&lower.includes('electric')){category=state.options.categories.includes('bill')?'bill':fallbackCategory;subcategory='electric';classification='electric bill'}
+else if(state.options.subcategories.includes('water')&&lower.includes('water')){category=state.options.categories.includes('bill')?'bill':fallbackCategory;subcategory='water';classification='water bill'}
+else if(state.options.subcategories.includes('sewer')&&lower.includes('sewer')){category=state.options.categories.includes('bill')?'bill':fallbackCategory;subcategory='sewer';classification='sewer bill'}
+else if(state.options.subcategories.includes('garbage')&&(lower.includes('garbage')||lower.includes('trash'))){category=state.options.categories.includes('bill')?'bill':fallbackCategory;subcategory='garbage';classification='garbage bill'}
+else if(state.options.subcategories.includes('internet')&&(lower.includes('internet')||lower.includes('hostinger'))){category=state.options.categories.includes('bill')?'bill':fallbackCategory;subcategory='internet';classification=lower.includes('hostinger')?'hostinger':'internet bill'}
+else if(lower.includes('gas')){category=state.options.categories.includes('car')?'car':fallbackCategory;subcategory=state.options.subcategories.includes('gas')?'gas':fallbackSub;classification='gas'}
+else if(['panda express','mcdonald','restaurant','food'].some(k=>lower.includes(k))){category=state.options.categories.includes('recreation')?'recreation':(state.options.categories.includes('food')?'food':fallbackCategory);subcategory=state.options.subcategories.includes('food')?'food':fallbackSub;classification=lower.includes('panda express')?'panda express':lower.includes('mcdonald')?'mcdonalds':'food'}
+else{let c=text.replace(/\$?\s*[0-9]+(?:\.[0-9]{1,2})?/g,'').trim();for(const m of state.options.methods){c=c.replace(new RegExp(`\\b${m.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')}\\b`,'ig'),'').trim()}c=c.replace(/^(bought|spent|paid|got|received|earned|made)\s+/i,'').trim();classification=c||'transaction'}
+return{type,category,subcategory,classification,method:method||fallbackMethod,amount}
+}
+function recent30(){const cutoff=Date.now()-30*24*60*60*1000;return state.transactions.filter(t=>new Date(t.date).getTime()>=cutoff)}
+function compute(){const recent=recent30();let income30=0,expenses30=0,totalIncome=0,totalExpenses=0;const methodTotals={};for(const m of state.options.methods){methodTotals[m]={income:0,expenses:0,net:Number(state.balances[m]||0),initial:Number(state.balances[m]||0)}}for(const t of state.transactions){const amt=Number(t.amount||0),m=state.options.methods.includes(t.method)?t.method:(state.options.methods[0]||'other');if(!methodTotals[m])methodTotals[m]={income:0,expenses:0,net:Number(state.balances[m]||0),initial:Number(state.balances[m]||0)};if(t.type==='income'){totalIncome+=amt;methodTotals[m].income+=amt;methodTotals[m].net+=amt;if(new Date(t.date).getTime()>=Date.now()-30*24*60*60*1000)income30+=amt}else{totalExpenses+=amt;methodTotals[m].expenses+=amt;methodTotals[m].net-=amt;if(new Date(t.date).getTime()>=Date.now()-30*24*60*60*1000)expenses30+=amt}}return{income30,expenses30,net30:income30-expenses30,overall:Object.values(state.balances).reduce((a,b)=>a+Number(b||0),0)+totalIncome-totalExpenses,methodTotals,recent}}
+function escapeHtml(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
+function txHtml(t,del=false){const cls=t.type==='income'?'green':'red',sign=t.type==='income'?'+':'-';return `<div class="card tx"><div class="left"><strong>${escapeHtml(t.classification)}</strong><div><span class="pill">${escapeHtml(t.type)}</span> <span class="pill">${escapeHtml(t.category)}</span> <span class="pill">${escapeHtml(t.subcategory)}</span> <span class="pill">${escapeHtml(t.method)}</span></div><div class="small muted">${new Date(t.date).toLocaleString()}</div></div><div class="right"><div class="num ${cls}" style="font-size:22px">${sign}${fmt(t.amount)}</div>${del?`<button class="danger" onclick="deleteTx('${t.id}')">Delete</button>`:''}</div></div>`}
+function editorHtml(key,list){return list.map((v,i)=>`<div class="mini"><input data-edit-list="${key}" data-index="${i}" value="${escapeHtml(v)}"><button class="danger" data-remove-list="${key}" data-index="${i}">Delete</button></div>`).join('')}
+function refreshSelects(){
+  ensureOptions();
+  fillSelect('type',state.options.types); fillSelect('category',state.options.categories); fillSelect('subcategory',state.options.subcategories); fillSelect('method',state.options.methods);
+  fillSelect('filterType',state.options.types,true); fillSelect('filterCategory',state.options.categories,true); fillSelect('filterMethod',state.options.methods,true);
+}
+function captureBalanceInputs(){const inputs=document.querySelectorAll('[data-balance]');if(!inputs.length)return;inputs.forEach(el=>{state.balances[el.dataset.balance]=Number(el.value||0)})}
+function render(){
+  refreshSelects();
+  const d=compute();
+  $('income30').textContent=fmt(d.income30); $('expenses30').textContent=fmt(d.expenses30); $('net30').textContent=fmt(d.net30); $('overallCash').textContent=fmt(d.overall);
+  const totals=Object.entries(d.methodTotals).filter(([,v])=>v.income||v.expenses||v.initial||state.options.methods.length).sort((a,b)=>b[1].net-a[1].net);
+  $('accountTotals').innerHTML=totals.length?totals.map(([m,v])=>`<div class="account"><strong>${escapeHtml(m)}</strong><div class="small muted">Income ${fmt(v.income)}</div><div class="small muted">Expenses ${fmt(v.expenses)}</div><div class="num ${v.net>=0?'green':'red'}" style="font-size:22px">${fmt(v.net)}</div></div>`).join(''):'<div class="small muted">No account totals yet.</div>';
+  const accountsWrap=$('accountTotalsWrap'),toggleBtn=$('toggleAccountsBtn');
+  if(accountsWrap&&toggleBtn){
+    accountsWrap.classList.toggle('collapsed',!!state.ui.accountsCollapsed);
+    toggleBtn.textContent=state.ui.accountsCollapsed?'Expand':'Collapse';
+    toggleBtn.setAttribute('aria-expanded',String(!state.ui.accountsCollapsed));
+  }
+  $('recentList').innerHTML=d.recent.length?d.recent.map(t=>txHtml(t)).join(''):'<div class="small muted">No transactions in the last 30 days.</div>';
+  const ft=$('filterType').value,fc=$('filterCategory').value,fm=$('filterMethod').value,fs=$('filterSearch').value.trim().toLowerCase();
+  const filtered=state.transactions.filter(t=>(!ft||t.type===ft)&&(!fc||t.category===fc)&&(!fm||t.method===fm)&&(!fs||String(t.classification).toLowerCase().includes(fs)));
+  $('txList').innerHTML=filtered.length?filtered.map(t=>txHtml(t,true)).join(''):'<div class="small muted">No transactions found.</div>';
+  $('balancesList').innerHTML=state.options.methods.map(m=>`<div class="tx card"><div class="left"><strong>${escapeHtml(m)}</strong><div class="small muted">Account balance</div></div><div style="min-width:140px"><input data-balance="${escapeHtml(m)}" type="number" step="0.01" value="${Number(state.balances[m]||0)}"></div></div>`).join('');
+  $('typesEditor').innerHTML=editorHtml('types',state.options.types);
+  $('categoriesEditor').innerHTML=editorHtml('categories',state.options.categories);
+  $('subcategoriesEditor').innerHTML=editorHtml('subcategories',state.options.subcategories);
+  $('methodsEditor').innerHTML=editorHtml('methods',state.options.methods);
+  const examples=[...new Set(state.transactions.map(t=>String(t.classification||'').trim()).filter(Boolean))].slice(0,18);
+  $('classificationExamples').innerHTML=examples.length?examples.map(v=>`<span class="chip">${escapeHtml(v)}</span>`).join(''):'<span class="chip">classification is free text</span>';
+  if(!state.options.types.includes($('type').value))$('type').value=state.options.types[0];
+  if(!state.options.categories.includes($('category').value))$('category').value=state.options.categories[0];
+  if(!state.options.subcategories.includes($('subcategory').value))$('subcategory').value=state.options.subcategories[0];
+  if(!state.options.methods.includes($('method').value))$('method').value=state.options.methods[0];
+}
+function download(name,content,type){const blob=new Blob([content],{type});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000)}
+function exportCsv(){const rows=[['date','type','category','subcategory','classification','method','amount'],...state.transactions.map(t=>[t.date,t.type,t.category,t.subcategory,t.classification,t.method,t.amount])];const csv=rows.map(r=>r.map(v=>`"${String(v??'').replace(/"/g,'""')}"`).join(',')).join('\n');download('finance-tracker-export.csv',csv,'text/csv;charset=utf-8')}
+function exportBackup(){download('finance-tracker-backup.json',JSON.stringify(state,null,2),'application/json')}
+async function importBackup(file){const txt=await file.text();const data=JSON.parse(txt);state={transactions:Array.isArray(data.transactions)?data.transactions:[],balances:data.balances&&typeof data.balances==='object'?data.balances:{},options:data.options&&typeof data.options==='object'?data.options:safeClone(defaults),ui:data.ui&&typeof data.ui==='object'?data.ui:{accountsCollapsed:false}};ensureOptions();await saveState();render();setStatus('Backup imported')}
+async function addTx(tx){state.transactions.unshift({...tx,id:crypto.randomUUID?crypto.randomUUID():String(Date.now()+Math.random()),date:nowIso()});await saveState()}
+async function deleteTx(id){state.transactions=state.transactions.filter(t=>t.id!==id);await saveState();render()} window.deleteTx=deleteTx;
+function clearForm(){$('rawInput').value='';$('type').value=state.options.types.includes('expense')?'expense':state.options.types[0];$('category').value=state.options.categories.includes('other')?'other':state.options.categories[0];$('subcategory').value=state.options.subcategories.includes('general')?'general':state.options.subcategories[0];$('classification').value='';$('method').value=state.options.methods.includes('other')?'other':state.options.methods[0];$('amount').value=''}
+function setupTabs(){document.querySelectorAll('.tabs button').forEach(btn=>btn.addEventListener('click',async()=>{captureBalanceInputs();document.querySelectorAll('.tabs button').forEach(b=>b.classList.remove('active'));btn.classList.add('active');document.querySelectorAll('.section').forEach(s=>s.classList.remove('active'));$(btn.dataset.tab).classList.add('active');if(btn.dataset.tab!=='settings'){ensureOptions();await saveState()}render()}))}
+function setupSpeech(){const SR=window.SpeechRecognition||window.webkitSpeechRecognition;if(!SR){$('speakBtn').disabled=true;$('speakBtn').textContent='Speech unavailable';return}const rec=new SR();rec.lang='en-US';rec.interimResults=false;rec.maxAlternatives=1;$('speakBtn').addEventListener('click',()=>{setStatus('Listening…');rec.start()});rec.onresult=e=>{$('rawInput').value=e.results[0][0].transcript;setStatus('Heard text')};rec.onerror=()=>setStatus('Speech failed');rec.onend=()=>{if($('status').textContent==='Listening…')setStatus('Ready')}}
+
+function setupAccountsCollapse(){
+  const btn=$('toggleAccountsBtn');
+  if(!btn)return;
+  btn.addEventListener('click',async()=>{
+    state.ui.accountsCollapsed=!state.ui.accountsCollapsed;
+    await saveState();
+    render();
+  });
+}
+
+async function addOption(key,inputId){const v=$(inputId).value.trim();if(!v)return;captureBalanceInputs();state.options[key]=uniqueClean([...(state.options[key]||[]),v]);if(key==='methods'&&!(v in state.balances))state.balances[v]=0;$(inputId).value='';ensureOptions();await saveState();render();setStatus('Added')}
+async function removeOption(key,index){const arr=[...(state.options[key]||[])];if(arr.length<=1){alert('You need at least one value here.');return}captureBalanceInputs();const removed=arr[index];state.options[key]=arr.filter((_,i)=>i!==index);if(key==='methods'&&removed in state.balances)delete state.balances[removed];ensureOptions();for(const t of state.transactions){if(key==='types'&&t.type===removed)t.type=state.options.types[0];if(key==='categories'&&t.category===removed)t.category=state.options.categories[0];if(key==='subcategories'&&t.subcategory===removed)t.subcategory=state.options.subcategories[0];if(key==='methods'&&t.method===removed)t.method=state.options.methods[0]}await saveState();render();setStatus('Deleted')}
+async function updateOptionName(key,index,value){const arr=[...(state.options[key]||[])];const old=arr[index];const clean=value.trim();if(!clean)return;captureBalanceInputs();arr[index]=clean;state.options[key]=uniqueClean(arr);if(key==='methods'&&old!==clean){state.balances[clean]=Number(state.balances[old]||0);delete state.balances[old]}ensureOptions();for(const t of state.transactions){if(key==='types'&&t.type===old)t.type=clean;if(key==='categories'&&t.category===old)t.category=clean;if(key==='subcategories'&&t.subcategory===old)t.subcategory=clean;if(key==='methods'&&t.method===old)t.method=clean}await saveState();render();setStatus('Updated')}
+
+document.addEventListener('click',async e=>{
+  const addKey=e.target.getAttribute('data-add');
+  if(addKey){if(addKey==='types')await addOption('types','newType'); if(addKey==='categories')await addOption('categories','newCategory'); if(addKey==='subcategories')await addOption('subcategories','newSubcategory'); if(addKey==='methods')await addOption('methods','newMethod');}
+  const removeKey=e.target.getAttribute('data-remove-list');
+  if(removeKey)await removeOption(removeKey,Number(e.target.getAttribute('data-index')));
+});
+document.addEventListener('change',async e=>{
+  if(e.target.matches('[data-edit-list]'))await updateOptionName(e.target.getAttribute('data-edit-list'),Number(e.target.getAttribute('data-index')),e.target.value);
+});
+$('parseBtn').addEventListener('click', async ()=>{
+  const rawInput = $('rawInput').value;
+  let p = await parseTextAI(rawInput);
+  const lower = String(rawInput || '').toLowerCase();
+
+  const aiBad = !p ||
+    !p.amount ||
+    !p.classification ||
+    (lower.includes('cashapp') && p.method !== 'cashapp') ||
+    (lower.includes('venmo') && p.method !== 'venmo') ||
+    (lower.includes('rent') && p.category !== 'rent') ||
+    (lower.includes('rent') && p.subcategory !== 'recurring');
+
+  let status = 'Parsed with AI';
+  if (aiBad) {
+    p = parseText(rawInput);
+    status = 'Parsed with fallback';
+  }
+
+  $('type').value = state.options.types.includes(p.type) ? p.type : state.options.types[0];
+  $('category').value = state.options.categories.includes(p.category) ? p.category : state.options.categories[0];
+  $('subcategory').value = state.options.subcategories.includes(p.subcategory) ? p.subcategory : state.options.subcategories[0];
+  $('classification').value = p.classification || '';
+  $('method').value = state.options.methods.includes(p.method) ? p.method : state.options.methods[0];
+  $('amount').value = p.amount || '';
+  setStatus(status);
+});
+$('saveBtn').addEventListener('click',async()=>{const tx={type:$('type').value,category:$('category').value,subcategory:$('subcategory').value,classification:$('classification').value.trim(),method:$('method').value,amount:Number($('amount').value||0),date:nowIso()};if(!tx.classification||!tx.amount){alert('Classification and amount are required.');return}await addTx(tx);const synced=await sendToGoogleSheets(tx);clearForm();render();setStatus(synced?'Saved + synced to Sheets':'Saved locally');document.querySelector('[data-tab="home"]').click()});
+$('clearBtn').addEventListener('click',clearForm);$('applyFiltersBtn').addEventListener('click',render);$('csvBtn').addEventListener('click',exportCsv);$('backupBtn').addEventListener('click',exportBackup);$('saveBalancesBtn').addEventListener('click',async()=>{captureBalanceInputs();ensureOptions();await saveState();render();setStatus('Balances saved')});$('importFile').addEventListener('change',async e=>{const f=e.target.files&&e.target.files[0];if(f){try{await importBackup(f)}catch(err){alert('Import failed')}e.target.value=''}});
+(async function init(){setupTabs();setupSpeech();setupAccountsCollapse();await loadState();render();clearForm();setStatus('Ready')})();
+</script>
+</body>
+</html>
