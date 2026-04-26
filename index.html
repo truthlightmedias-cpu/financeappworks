@@ -178,9 +178,10 @@ const defaults={
   subcategories:['electric','water','sewer','garbage','internet','general','recurring','one-time','maintenance','truthandlight','gas','food'],
   methods:['cash','venmo','cashapp','paypal','check','embassy','amex','credit','debit','truist','other']
 };
-const OPENAI_API_KEY = "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";
+const OPENAI_API_KEY = "REPLACE_THIS_WITH_YOUR_KEY";
 const SHEETS_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzdYRMPMxgnweT2TGoka1NcPwCcgfkYZg5GRQW84ZHqa17lME9Pu-DIHTM1OsK2ZA96/exec";
 const SHEETS_APP_TOKEN = "finance-2026-lock-xyz";
+const SYNC_FROM_SHEETS_ON_START = true;
 
 async function parseTextAI(text){
   try{
@@ -339,6 +340,96 @@ async function sendToGoogleSheets(tx){
     return false;
   }
 }
+
+async function fetchFromGoogleSheets(){
+  try{
+    if(!SHEETS_WEBHOOK_URL) return null;
+    const url = `${SHEETS_WEBHOOK_URL}?token=${encodeURIComponent(SHEETS_APP_TOKEN)}&action=getState&cacheBust=${Date.now()}`;
+    const res = await fetch(url, { method:'GET', cache:'no-store' });
+    const text = await res.text();
+    console.log('Sheets pull response:', text);
+    const data = JSON.parse(text);
+    if(!data || data.ok === false) return null;
+    return data;
+  }catch(e){
+    console.log('Sheets pull failed', e);
+    return null;
+  }
+}
+
+function makeTxId(t){
+  return [t.date,t.type,t.category,t.subcategory,t.classification,t.method,Number(t.amount||0).toFixed(2)].join('|').toLowerCase();
+}
+
+function normalizeSheetTx(row){
+  const tx = {
+    id: row.id || row.ID || row.transaction_id || '',
+    date: row.date || row.Date || row.timestamp || row.Timestamp || nowIso(),
+    type: String(row.type || row.Type || 'expense').toLowerCase().trim(),
+    category: String(row.category || row.Category || 'other').trim(),
+    subcategory: String(row.subcategory || row.Subcategory || row['sub category'] || row['Sub Category'] || 'general').trim(),
+    classification: String(row.classification || row.Classification || row.description || row.Description || 'transaction').trim(),
+    method: String(row.method || row.Method || row.account || row.Account || 'other').trim(),
+    amount: Number(row.amount || row.Amount || 0)
+  };
+  if(!tx.id) tx.id = makeTxId(tx);
+  if(!tx.date || isNaN(new Date(tx.date).getTime())) tx.date = nowIso();
+  if(!state.options.types.includes(tx.type)) tx.type = state.options.types.includes('expense') ? 'expense' : state.options.types[0];
+  if(!state.options.categories.includes(tx.category)) state.options.categories.push(tx.category || 'other');
+  if(!state.options.subcategories.includes(tx.subcategory)) state.options.subcategories.push(tx.subcategory || 'general');
+  if(!state.options.methods.includes(tx.method)) state.options.methods.push(tx.method || 'other');
+  return tx;
+}
+
+function readSheetStatePayload(data){
+  if(Array.isArray(data)) return { transactions:data };
+  if(Array.isArray(data.transactions)) return data;
+  if(Array.isArray(data.rows)) return { ...data, transactions:data.rows };
+  if(data.data && Array.isArray(data.data.transactions)) return data.data;
+  if(data.data && Array.isArray(data.data.rows)) return { ...data.data, transactions:data.data.rows };
+  return data;
+}
+
+async function syncFromGoogleSheets(){
+  const pulledRaw = await fetchFromGoogleSheets();
+  if(!pulledRaw) return false;
+
+  const pulled = readSheetStatePayload(pulledRaw);
+  captureBalanceInputs();
+
+  if(pulled.options && typeof pulled.options === 'object'){
+    state.options = {
+      types: uniqueClean([...(state.options.types||[]), ...(pulled.options.types||[])]),
+      categories: uniqueClean([...(state.options.categories||[]), ...(pulled.options.categories||[])]),
+      subcategories: uniqueClean([...(state.options.subcategories||[]), ...(pulled.options.subcategories||[])]),
+      methods: uniqueClean([...(state.options.methods||[]), ...(pulled.options.methods||[])])
+    };
+  }
+
+  if(pulled.balances && typeof pulled.balances === 'object'){
+    state.balances = { ...state.balances, ...pulled.balances };
+  }
+
+  ensureOptions();
+
+  if(Array.isArray(pulled.transactions)){
+    const byId = new Map();
+    for(const tx of state.transactions){
+      const id = tx.id || makeTxId(tx);
+      byId.set(id, { ...tx, id });
+    }
+    for(const row of pulled.transactions){
+      const tx = normalizeSheetTx(row);
+      byId.set(tx.id, tx);
+    }
+    state.transactions = [...byId.values()].sort((a,b)=>new Date(b.date).getTime()-new Date(a.date).getTime());
+  }
+
+  ensureOptions();
+  await saveState();
+  render();
+  return true;
+}
 const $=id=>document.getElementById(id), fmt=n=>`$${Number(n||0).toFixed(2)}`;
 let state={transactions:[],balances:{},options:structuredClone(defaults),ui:{accountsCollapsed:false}};
 
@@ -485,9 +576,9 @@ $('parseBtn').addEventListener('click', async ()=>{
   $('amount').value = p.amount || '';
   setStatus(status);
 });
-$('saveBtn').addEventListener('click',async()=>{const tx={type:$('type').value,category:$('category').value,subcategory:$('subcategory').value,classification:$('classification').value.trim(),method:$('method').value,amount:Number($('amount').value||0),date:nowIso()};if(!tx.classification||!tx.amount){alert('Classification and amount are required.');return}await addTx(tx);const synced=await sendToGoogleSheets(tx);clearForm();render();setStatus(synced?'Saved + synced to Sheets':'Saved locally');document.querySelector('[data-tab="home"]').click()});
+$('saveBtn').addEventListener('click',async()=>{const tx={type:$('type').value,category:$('category').value,subcategory:$('subcategory').value,classification:$('classification').value.trim(),method:$('method').value,amount:Number($('amount').value||0),date:nowIso()};if(!tx.classification||!tx.amount){alert('Classification and amount are required.');return}await addTx(tx);const synced=await sendToGoogleSheets(tx);if(synced){setStatus('Saved + synced. Pulling latest Sheet totals…');await syncFromGoogleSheets()}clearForm();render();setStatus(synced?'Saved + synced to Sheets':'Saved locally');document.querySelector('[data-tab="home"]').click()});
 $('clearBtn').addEventListener('click',clearForm);$('applyFiltersBtn').addEventListener('click',render);$('csvBtn').addEventListener('click',exportCsv);$('backupBtn').addEventListener('click',exportBackup);$('saveBalancesBtn').addEventListener('click',async()=>{captureBalanceInputs();ensureOptions();await saveState();render();setStatus('Balances saved')});$('importFile').addEventListener('change',async e=>{const f=e.target.files&&e.target.files[0];if(f){try{await importBackup(f)}catch(err){alert('Import failed')}e.target.value=''}});
-(async function init(){setupTabs();setupSpeech();setupAccountsCollapse();await loadState();render();clearForm();setStatus('Ready')})();
+(async function init(){setupTabs();setupSpeech();setupAccountsCollapse();await loadState();render();clearForm();if(SYNC_FROM_SHEETS_ON_START){setStatus('Loading latest from Sheets…');const ok=await syncFromGoogleSheets();setStatus(ok?'Synced from Sheets':'Ready - Sheet pull unavailable')}else{setStatus('Ready')}})();
 </script>
 </body>
 </html>
