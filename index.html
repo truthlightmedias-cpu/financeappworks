@@ -39,7 +39,7 @@ button.primary{background:#14532d;border-color:#166534}button.secondary{backgrou
   <div class="top">
     <div>
       <h1>Phone Finance Tracker v3</h1>
-      <div class="muted small">Single-file app. Saves on this device.</div>
+      <div class="muted small">Single-file app. Syncs with Google Sheets + saves backup on this device.</div>
     </div>
     <div id="status" class="small muted">Ready</div>
   </div>
@@ -178,10 +178,9 @@ const defaults={
   subcategories:['electric','water','sewer','garbage','internet','general','recurring','one-time','maintenance','truthandlight','gas','food'],
   methods:['cash','venmo','cashapp','paypal','check','embassy','amex','credit','debit','truist','other']
 };
-const OPENAI_API_KEY = "REPLACE_THIS_WITH_YOUR_KEY";
+const OPENAI_API_KEY = "REPLACE_THIS_WITH_YOUR_OPENAI_KEY";
 const SHEETS_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzdYRMPMxgnweT2TGoka1NcPwCcgfkYZg5GRQW84ZHqa17lME9Pu-DIHTM1OsK2ZA96/exec";
 const SHEETS_APP_TOKEN = "finance-2026-lock-xyz";
-const SYNC_FROM_SHEETS_ON_START = true;
 
 async function parseTextAI(text){
   try{
@@ -311,124 +310,65 @@ function normalizeAIResult(p, rawText){
 }
 
 
-async function sendToGoogleSheets(tx){
+async function postToSheets(payload){
   try{
-    if(!SHEETS_WEBHOOK_URL) return false;
-
+    if(!SHEETS_WEBHOOK_URL) return null;
     const res = await fetch(SHEETS_WEBHOOK_URL,{
       method:"POST",
       headers:{ "Content-Type":"text/plain;charset=utf-8" },
-      body: JSON.stringify({
-        token: SHEETS_APP_TOKEN,
-        date: tx.date || new Date().toISOString(),
-        type: tx.type,
-        category: tx.category,
-        subcategory: tx.subcategory,
-        classification: tx.classification,
-        method: tx.method,
-        amount: Number(tx.amount || 0)
-      })
+      body: JSON.stringify({ token: SHEETS_APP_TOKEN, ...payload })
     });
-
     const text = await res.text();
     console.log("Sheets response:", text);
-    const data = JSON.parse(text);
-    return !!data.ok;
-
+    return JSON.parse(text);
   }catch(e){
-    console.log("Sheets sync failed", e);
-    return false;
-  }
-}
-
-async function fetchFromGoogleSheets(){
-  try{
-    if(!SHEETS_WEBHOOK_URL) return null;
-    const url = `${SHEETS_WEBHOOK_URL}?token=${encodeURIComponent(SHEETS_APP_TOKEN)}&action=getState&cacheBust=${Date.now()}`;
-    const res = await fetch(url, { method:'GET', cache:'no-store' });
-    const text = await res.text();
-    console.log('Sheets pull response:', text);
-    const data = JSON.parse(text);
-    if(!data || data.ok === false) return null;
-    return data;
-  }catch(e){
-    console.log('Sheets pull failed', e);
+    console.log("Sheets request failed", e);
     return null;
   }
 }
 
-function makeTxId(t){
-  return [t.date,t.type,t.category,t.subcategory,t.classification,t.method,Number(t.amount||0).toFixed(2)].join('|').toLowerCase();
+async function sendToGoogleSheets(tx){
+  const data = await postToSheets({
+    mode:"add_transaction",
+    date: tx.date || new Date().toISOString(),
+    type: tx.type,
+    category: tx.category,
+    subcategory: tx.subcategory,
+    classification: tx.classification,
+    method: tx.method,
+    amount: Number(tx.amount || 0)
+  });
+  return !!data?.ok;
 }
 
-function normalizeSheetTx(row){
-  const tx = {
-    id: row.id || row.ID || row.transaction_id || '',
-    date: row.date || row.Date || row.timestamp || row.Timestamp || nowIso(),
-    type: String(row.type || row.Type || 'expense').toLowerCase().trim(),
-    category: String(row.category || row.Category || 'other').trim(),
-    subcategory: String(row.subcategory || row.Subcategory || row['sub category'] || row['Sub Category'] || 'general').trim(),
-    classification: String(row.classification || row.Classification || row.description || row.Description || 'transaction').trim(),
-    method: String(row.method || row.Method || row.account || row.Account || 'other').trim(),
-    amount: Number(row.amount || row.Amount || 0)
-  };
-  if(!tx.id) tx.id = makeTxId(tx);
-  if(!tx.date || isNaN(new Date(tx.date).getTime())) tx.date = nowIso();
-  if(!state.options.types.includes(tx.type)) tx.type = state.options.types.includes('expense') ? 'expense' : state.options.types[0];
-  if(!state.options.categories.includes(tx.category)) state.options.categories.push(tx.category || 'other');
-  if(!state.options.subcategories.includes(tx.subcategory)) state.options.subcategories.push(tx.subcategory || 'general');
-  if(!state.options.methods.includes(tx.method)) state.options.methods.push(tx.method || 'other');
-  return tx;
+async function syncStateToSheet(){
+  ensureOptions();
+  const data = await postToSheets({
+    mode:"save_state",
+    state:{
+      transactions: state.transactions || [],
+      balances: state.balances || {},
+      options: state.options || safeClone(defaults),
+      ui: state.ui || {accountsCollapsed:false}
+    }
+  });
+  return !!data?.ok;
 }
 
-function readSheetStatePayload(data){
-  if(Array.isArray(data)) return { transactions:data };
-  if(Array.isArray(data.transactions)) return data;
-  if(Array.isArray(data.rows)) return { ...data, transactions:data.rows };
-  if(data.data && Array.isArray(data.data.transactions)) return data.data;
-  if(data.data && Array.isArray(data.data.rows)) return { ...data.data, transactions:data.data.rows };
-  return data;
-}
-
-async function syncFromGoogleSheets(){
-  const pulledRaw = await fetchFromGoogleSheets();
-  if(!pulledRaw) return false;
-
-  const pulled = readSheetStatePayload(pulledRaw);
-  captureBalanceInputs();
-
-  if(pulled.options && typeof pulled.options === 'object'){
-    state.options = {
-      types: uniqueClean([...(state.options.types||[]), ...(pulled.options.types||[])]),
-      categories: uniqueClean([...(state.options.categories||[]), ...(pulled.options.categories||[])]),
-      subcategories: uniqueClean([...(state.options.subcategories||[]), ...(pulled.options.subcategories||[])]),
-      methods: uniqueClean([...(state.options.methods||[]), ...(pulled.options.methods||[])])
+async function loadStateFromSheet(){
+  const data = await postToSheets({ mode:"load_state" });
+  if(data?.ok && data.state){
+    state={
+      transactions:Array.isArray(data.state.transactions)?data.state.transactions:[],
+      balances:data.state.balances&&typeof data.state.balances==='object'?data.state.balances:{},
+      options:data.state.options&&typeof data.state.options==='object'?data.state.options:safeClone(defaults),
+      ui:data.state.ui&&typeof data.state.ui==='object'?data.state.ui:{accountsCollapsed:false}
     };
+    ensureOptions();
+    await saveState();
+    return true;
   }
-
-  if(pulled.balances && typeof pulled.balances === 'object'){
-    state.balances = { ...state.balances, ...pulled.balances };
-  }
-
-  ensureOptions();
-
-  if(Array.isArray(pulled.transactions)){
-    const byId = new Map();
-    for(const tx of state.transactions){
-      const id = tx.id || makeTxId(tx);
-      byId.set(id, { ...tx, id });
-    }
-    for(const row of pulled.transactions){
-      const tx = normalizeSheetTx(row);
-      byId.set(tx.id, tx);
-    }
-    state.transactions = [...byId.values()].sort((a,b)=>new Date(b.date).getTime()-new Date(a.date).getTime());
-  }
-
-  ensureOptions();
-  await saveState();
-  render();
-  return true;
+  return false;
 }
 const $=id=>document.getElementById(id), fmt=n=>`$${Number(n||0).toFixed(2)}`;
 let state={transactions:[],balances:{},options:structuredClone(defaults),ui:{accountsCollapsed:false}};
@@ -519,9 +459,9 @@ function render(){
 function download(name,content,type){const blob=new Blob([content],{type});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000)}
 function exportCsv(){const rows=[['date','type','category','subcategory','classification','method','amount'],...state.transactions.map(t=>[t.date,t.type,t.category,t.subcategory,t.classification,t.method,t.amount])];const csv=rows.map(r=>r.map(v=>`"${String(v??'').replace(/"/g,'""')}"`).join(',')).join('\n');download('finance-tracker-export.csv',csv,'text/csv;charset=utf-8')}
 function exportBackup(){download('finance-tracker-backup.json',JSON.stringify(state,null,2),'application/json')}
-async function importBackup(file){const txt=await file.text();const data=JSON.parse(txt);state={transactions:Array.isArray(data.transactions)?data.transactions:[],balances:data.balances&&typeof data.balances==='object'?data.balances:{},options:data.options&&typeof data.options==='object'?data.options:safeClone(defaults),ui:data.ui&&typeof data.ui==='object'?data.ui:{accountsCollapsed:false}};ensureOptions();await saveState();render();setStatus('Backup imported')}
+async function importBackup(file){const txt=await file.text();const data=JSON.parse(txt);state={transactions:Array.isArray(data.transactions)?data.transactions:[],balances:data.balances&&typeof data.balances==='object'?data.balances:{},options:data.options&&typeof data.options==='object'?data.options:safeClone(defaults),ui:data.ui&&typeof data.ui==='object'?data.ui:{accountsCollapsed:false}};ensureOptions();await saveState();await syncStateToSheet();render();setStatus('Backup imported + synced')}
 async function addTx(tx){state.transactions.unshift({...tx,id:crypto.randomUUID?crypto.randomUUID():String(Date.now()+Math.random()),date:nowIso()});await saveState()}
-async function deleteTx(id){state.transactions=state.transactions.filter(t=>t.id!==id);await saveState();render()} window.deleteTx=deleteTx;
+async function deleteTx(id){state.transactions=state.transactions.filter(t=>t.id!==id);await saveState();await syncStateToSheet();render();setStatus('Deleted + synced')} window.deleteTx=deleteTx;
 function clearForm(){$('rawInput').value='';$('type').value=state.options.types.includes('expense')?'expense':state.options.types[0];$('category').value=state.options.categories.includes('other')?'other':state.options.categories[0];$('subcategory').value=state.options.subcategories.includes('general')?'general':state.options.subcategories[0];$('classification').value='';$('method').value=state.options.methods.includes('other')?'other':state.options.methods[0];$('amount').value=''}
 function setupTabs(){document.querySelectorAll('.tabs button').forEach(btn=>btn.addEventListener('click',async()=>{captureBalanceInputs();document.querySelectorAll('.tabs button').forEach(b=>b.classList.remove('active'));btn.classList.add('active');document.querySelectorAll('.section').forEach(s=>s.classList.remove('active'));$(btn.dataset.tab).classList.add('active');if(btn.dataset.tab!=='settings'){ensureOptions();await saveState()}render()}))}
 function setupSpeech(){const SR=window.SpeechRecognition||window.webkitSpeechRecognition;if(!SR){$('speakBtn').disabled=true;$('speakBtn').textContent='Speech unavailable';return}const rec=new SR();rec.lang='en-US';rec.interimResults=false;rec.maxAlternatives=1;$('speakBtn').addEventListener('click',()=>{setStatus('Listening…');rec.start()});rec.onresult=e=>{$('rawInput').value=e.results[0][0].transcript;setStatus('Heard text')};rec.onerror=()=>setStatus('Speech failed');rec.onend=()=>{if($('status').textContent==='Listening…')setStatus('Ready')}}
@@ -532,13 +472,14 @@ function setupAccountsCollapse(){
   btn.addEventListener('click',async()=>{
     state.ui.accountsCollapsed=!state.ui.accountsCollapsed;
     await saveState();
+    await syncStateToSheet();
     render();
   });
 }
 
-async function addOption(key,inputId){const v=$(inputId).value.trim();if(!v)return;captureBalanceInputs();state.options[key]=uniqueClean([...(state.options[key]||[]),v]);if(key==='methods'&&!(v in state.balances))state.balances[v]=0;$(inputId).value='';ensureOptions();await saveState();render();setStatus('Added')}
-async function removeOption(key,index){const arr=[...(state.options[key]||[])];if(arr.length<=1){alert('You need at least one value here.');return}captureBalanceInputs();const removed=arr[index];state.options[key]=arr.filter((_,i)=>i!==index);if(key==='methods'&&removed in state.balances)delete state.balances[removed];ensureOptions();for(const t of state.transactions){if(key==='types'&&t.type===removed)t.type=state.options.types[0];if(key==='categories'&&t.category===removed)t.category=state.options.categories[0];if(key==='subcategories'&&t.subcategory===removed)t.subcategory=state.options.subcategories[0];if(key==='methods'&&t.method===removed)t.method=state.options.methods[0]}await saveState();render();setStatus('Deleted')}
-async function updateOptionName(key,index,value){const arr=[...(state.options[key]||[])];const old=arr[index];const clean=value.trim();if(!clean)return;captureBalanceInputs();arr[index]=clean;state.options[key]=uniqueClean(arr);if(key==='methods'&&old!==clean){state.balances[clean]=Number(state.balances[old]||0);delete state.balances[old]}ensureOptions();for(const t of state.transactions){if(key==='types'&&t.type===old)t.type=clean;if(key==='categories'&&t.category===old)t.category=clean;if(key==='subcategories'&&t.subcategory===old)t.subcategory=clean;if(key==='methods'&&t.method===old)t.method=clean}await saveState();render();setStatus('Updated')}
+async function addOption(key,inputId){const v=$(inputId).value.trim();if(!v)return;captureBalanceInputs();state.options[key]=uniqueClean([...(state.options[key]||[]),v]);if(key==='methods'&&!(v in state.balances))state.balances[v]=0;$(inputId).value='';ensureOptions();await saveState();await syncStateToSheet();render();setStatus('Added + synced')}
+async function removeOption(key,index){const arr=[...(state.options[key]||[])];if(arr.length<=1){alert('You need at least one value here.');return}captureBalanceInputs();const removed=arr[index];state.options[key]=arr.filter((_,i)=>i!==index);if(key==='methods'&&removed in state.balances)delete state.balances[removed];ensureOptions();for(const t of state.transactions){if(key==='types'&&t.type===removed)t.type=state.options.types[0];if(key==='categories'&&t.category===removed)t.category=state.options.categories[0];if(key==='subcategories'&&t.subcategory===removed)t.subcategory=state.options.subcategories[0];if(key==='methods'&&t.method===removed)t.method=state.options.methods[0]}await saveState();await syncStateToSheet();render();setStatus('Deleted + synced')}
+async function updateOptionName(key,index,value){const arr=[...(state.options[key]||[])];const old=arr[index];const clean=value.trim();if(!clean)return;captureBalanceInputs();arr[index]=clean;state.options[key]=uniqueClean(arr);if(key==='methods'&&old!==clean){state.balances[clean]=Number(state.balances[old]||0);delete state.balances[old]}ensureOptions();for(const t of state.transactions){if(key==='types'&&t.type===old)t.type=clean;if(key==='categories'&&t.category===old)t.category=clean;if(key==='subcategories'&&t.subcategory===old)t.subcategory=clean;if(key==='methods'&&t.method===old)t.method=clean}await saveState();await syncStateToSheet();render();setStatus('Updated + synced')}
 
 document.addEventListener('click',async e=>{
   const addKey=e.target.getAttribute('data-add');
@@ -576,9 +517,9 @@ $('parseBtn').addEventListener('click', async ()=>{
   $('amount').value = p.amount || '';
   setStatus(status);
 });
-$('saveBtn').addEventListener('click',async()=>{const tx={type:$('type').value,category:$('category').value,subcategory:$('subcategory').value,classification:$('classification').value.trim(),method:$('method').value,amount:Number($('amount').value||0),date:nowIso()};if(!tx.classification||!tx.amount){alert('Classification and amount are required.');return}await addTx(tx);const synced=await sendToGoogleSheets(tx);if(synced){setStatus('Saved + synced. Pulling latest Sheet totals…');await syncFromGoogleSheets()}clearForm();render();setStatus(synced?'Saved + synced to Sheets':'Saved locally');document.querySelector('[data-tab="home"]').click()});
-$('clearBtn').addEventListener('click',clearForm);$('applyFiltersBtn').addEventListener('click',render);$('csvBtn').addEventListener('click',exportCsv);$('backupBtn').addEventListener('click',exportBackup);$('saveBalancesBtn').addEventListener('click',async()=>{captureBalanceInputs();ensureOptions();await saveState();render();setStatus('Balances saved')});$('importFile').addEventListener('change',async e=>{const f=e.target.files&&e.target.files[0];if(f){try{await importBackup(f)}catch(err){alert('Import failed')}e.target.value=''}});
-(async function init(){setupTabs();setupSpeech();setupAccountsCollapse();await loadState();render();clearForm();if(SYNC_FROM_SHEETS_ON_START){setStatus('Loading latest from Sheets…');const ok=await syncFromGoogleSheets();setStatus(ok?'Synced from Sheets':'Ready - Sheet pull unavailable')}else{setStatus('Ready')}})();
+$('saveBtn').addEventListener('click',async()=>{const tx={type:$('type').value,category:$('category').value,subcategory:$('subcategory').value,classification:$('classification').value.trim(),method:$('method').value,amount:Number($('amount').value||0),date:nowIso()};if(!tx.classification||!tx.amount){alert('Classification and amount are required.');return}await addTx(tx);const rowSynced=await sendToGoogleSheets(tx);const stateSynced=await syncStateToSheet();clearForm();render();setStatus(rowSynced&&stateSynced?'Saved + fully synced':'Saved locally');document.querySelector('[data-tab="home"]').click()});
+$('clearBtn').addEventListener('click',clearForm);$('applyFiltersBtn').addEventListener('click',render);$('csvBtn').addEventListener('click',exportCsv);$('backupBtn').addEventListener('click',exportBackup);$('saveBalancesBtn').addEventListener('click',async()=>{captureBalanceInputs();ensureOptions();await saveState();const synced=await syncStateToSheet();render();setStatus(synced?'Balances synced':'Balances saved locally')});$('importFile').addEventListener('change',async e=>{const f=e.target.files&&e.target.files[0];if(f){try{await importBackup(f)}catch(err){alert('Import failed')}e.target.value=''}});
+(async function init(){setupTabs();setupSpeech();setupAccountsCollapse();await loadState();setStatus('Loading Sheet…');const sheetLoaded=await loadStateFromSheet();render();clearForm();setStatus(sheetLoaded?'Ready · Sheet synced':'Ready · local backup')})();
 </script>
 </body>
 </html>
